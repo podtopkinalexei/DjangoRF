@@ -1,7 +1,6 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.contrib.auth.models import UserManager as BaseUserManager
-from materials.models import Course, Lesson
 
 
 class UserManager(BaseUserManager):
@@ -57,11 +56,11 @@ class Payment(models.Model):
         ('transfer', 'Перевод на счет'),
     ]
 
-    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name='Пользователь')
+    user = models.ForeignKey('User', on_delete=models.CASCADE, verbose_name='Пользователь')
     payment_date = models.DateTimeField(auto_now_add=True, verbose_name='Дата оплаты')
-    paid_course = models.ForeignKey(Course, on_delete=models.CASCADE, null=True, blank=True,
+    paid_course = models.ForeignKey('materials.Course', on_delete=models.CASCADE, null=True, blank=True,
                                     verbose_name='Оплаченный курс')
-    paid_lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, null=True, blank=True,
+    paid_lesson = models.ForeignKey('materials.Lesson', on_delete=models.CASCADE, null=True, blank=True,
                                     verbose_name='Оплаченный урок')
     amount = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='Сумма оплаты')
     payment_method = models.CharField(max_length=10, choices=PAYMENT_METHOD_CHOICES, verbose_name='Способ оплаты')
@@ -80,3 +79,4 @@ class Payment(models.Model):
             raise ValidationError('Можно указать только курс или урок, но не оба одновременно.')
         if not self.paid_course and not self.paid_lesson:
             raise ValidationError('Необходимо указать либо курс, либо урок.')
+
