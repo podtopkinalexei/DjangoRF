@@ -251,3 +251,52 @@ class PaginationTestCase(APITestCase):
         response = self.client.get(reverse('courses-list'))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn('results', response.data)
+
+
+class PaymentTestCase(APITestCase):
+    """
+    Тесты функционала платежей
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='test@test.com',
+            password='testpass123'
+        )
+        self.course = Course.objects.create(
+            title='Test Course',
+            description='Test Description',
+            owner=self.user
+        )
+
+    def test_payment_create_for_course(self):
+        """Создание платежа для курса"""
+        self.client.force_authenticate(user=self.user)
+        response = self.client.post(
+            reverse('payment-create'),
+            {'course_id': self.course.id, 'amount': '1000.00'}
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn('payment_link', response.data)
+
+    def test_payment_create_validation(self):
+        """Валидация создания платежа"""
+        self.client.force_authenticate(user=self.user)
+
+        # Не указан ни курс, ни урок
+        response = self.client.post(reverse('payment-create'), {})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Указаны и курс, и урок
+        response = self.client.post(
+            reverse('payment-create'),
+            {'course_id': 1, 'lesson_id': 1}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_payment_list(self):
+        """Получение списка платежей пользователя"""
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(reverse('payment-list'))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
