@@ -1,11 +1,14 @@
 from rest_framework import viewsets, generics, permissions, status
+from rest_framework.generics import ListAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Course, Lesson, Subscription
+from .models import Course, Lesson, Subscription, Payment
 from .paginators import CoursePagination, LessonPagination
-from .serializers import CourseSerializer, LessonSerializer, SubscriptionSerializer
+from .serializers import CourseSerializer, LessonSerializer, SubscriptionSerializer, PaymentCreateSerializer, \
+    PaymentStatusSerializer, PaymentSerializer
 from .permissions import IsOwnerOrModerator, IsModerator, IsOwner
+from .services import PaymentService
 
 
 class CourseViewSet(viewsets.ModelViewSet):
@@ -152,4 +155,132 @@ class SubscriptionAPIView(APIView):
                 serializer.data,
                 status=status.HTTP_201_CREATED
             )
+
+
+class PaymentCreateAPIView(APIView):
+    """
+    Создание платежа и получение ссылки на оплату
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = PaymentCreateSerializer(data=request.data)
+        if serializer.is_valid():
+            try:
+                from .models import Course, Lesson
+
+                course_id = serializer.validated_data.get('course_id')
+                lesson_id = serializer.validated_data.get('lesson_id')
+                amount = serializer.validated_data.get('amount')
+
+                course = None
+                lesson = None
+
+                if course_id:
+                    try:
+                        course = Course.objects.get(id=course_id)
+                    except Course.DoesNotExist:
+                        return Response(
+                            {'error': 'Курс не найден'},
+                            status=status.HTTP_404_NOT_FOUND
+                        )
+
+                if lesson_id:
+                    try:
+                        lesson = Lesson.objects.get(id=lesson_id)
+                    except Lesson.DoesNotExist:
+                        return Response(
+                            {'error': 'Урок не найден'},
+                            status=status.HTTP_404_NOT_FOUND
+                        )
+
+                # Создаем платеж и получаем ссылку на оплату
+                payment_data = PaymentService.create_payment_intent(
+                    user=request.user,
+                    course=course,
+                    lesson=lesson,
+                    amount=amount
+                )
+
+                return Response(payment_data, status=status.HTTP_201_CREATED)
+
+            except Exception as e:
+                return Response(
+                    {'error': str(e)},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class PaymentStatusAPIView(APIView):
+    """
+    Проверка статуса платежа
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        session_id = request.query_params.get('session_id')
+
+        if not session_id:
+            return Response(
+                {'error': 'session_id обязателен'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            status_data = PaymentService.check_payment_status(session_id)
+            serializer = PaymentStatusSerializer(status_data)
+            return Response(serializer.data)
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+
+class PaymentListAPIView(ListAPIView):
+    """
+    Список платежей пользователя
+    """
+    serializer_class = PaymentSerializer
+    permission_classes = [permissions.IsAuthenticated, IsOwner]
+
+    def get_queryset(self):
+        return Payment.objects.filter(user=self.request.user)
+
+
+class PaymentSuccessAPIView(APIView):
+    """
+    Обработка успешной оплаты (редирект от Stripe)
+    """
+
+    def get(self, request):
+        session_id = request.GET.get('session_id')
+        if session_id:
+            try:
+                status_data = PaymentService.check_payment_status(session_id)
+                return Response({
+                    'message': 'Оплата прошла успешно!',
+                    'status': status_data
+                })
+            except Exception as e:
+                return Response({
+                    'error': f'Ошибка при проверке платежа: {str(e)}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({
+            'message': 'Спасибо за оплату!'
+        })
+
+
+class PaymentCancelAPIView(APIView):
+    """
+    Обработка отмены оплаты (редирект от Stripe)
+    """
+
+    def get(self, request):
+        return Response({
+            'message': 'Оплата была отменена. Вы можете попробовать снова.'
+        }, status=status.HTTP_200_OK)
 
