@@ -20,6 +20,8 @@ INSTALLED_APPS = [
     'django_filters',
     'rest_framework',
     'rest_framework_simplejwt',
+    'drf_yasg',
+    'corsheaders',
     'users',
     'materials',
 ]
@@ -32,7 +34,20 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
 ]
+
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:8000',  # Заменить на адрес текущего сервера
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    'https://read-and-write.example.com', #  Заменить на адрес текущего сервера
+    'http://localhost:8000',
+]
+
+CORS_ALLOW_ALL_ORIGINS = False
+
 
 ROOT_URLCONF = 'DjangoRF.urls'
 
