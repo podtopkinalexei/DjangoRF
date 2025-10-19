@@ -1,12 +1,16 @@
+from django.core.exceptions import ValidationError
 from django.db import models
 from users.models import User
+
 
 class Course(models.Model):
     title = models.CharField(max_length=200, verbose_name='Название')
     preview = models.ImageField(upload_to='courses/previews/', blank=True, null=True, verbose_name='Превью')
     description = models.TextField(blank=True, null=True, verbose_name='Описание')
     owner = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True,
-                             verbose_name='Владелец', related_name='courses')
+                              verbose_name='Владелец', related_name='courses')
+    # Добавляем поле для отслеживания времени обновления
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='Дата обновления')
 
     class Meta:
         verbose_name = 'Курс'
