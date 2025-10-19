@@ -3,6 +3,8 @@ from rest_framework.generics import ListAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .tasks import send_course_update_notification, send_lesson_update_notification
+
 from .models import Course, Lesson, Subscription, Payment
 from .paginators import CoursePagination, LessonPagination
 from .serializers import CourseSerializer, LessonSerializer, SubscriptionSerializer, PaymentCreateSerializer, \
@@ -41,12 +43,14 @@ class CourseViewSet(viewsets.ModelViewSet):
         serializer.save(owner=self.request.user)
 
     def get_serializer_context(self):
-        """
-        Передаем request в контекст сериализатора
-        """
         context = super().get_serializer_context()
         context['request'] = self.request
         return context
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        # Асинхронная отправка уведомлений об обновлении курса
+        send_course_update_notification.delay(instance.id)
 
 
 class LessonListCreateAPIView(generics.ListCreateAPIView):
@@ -93,6 +97,11 @@ class LessonUpdateAPIView(generics.UpdateAPIView):
         if user.groups.filter(name='moderators').exists():
             return Lesson.objects.all()
         return Lesson.objects.filter(owner=user)
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        # Асинхронная отправка уведомлений об обновлении урока
+        send_lesson_update_notification.delay(instance.id, instance.course.id)
 
 
 class LessonDestroyAPIView(generics.DestroyAPIView):
