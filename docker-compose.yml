@@ -1,0 +1,147 @@
+version: '3.9'  # Эта строка устарела!!!
+
+services:
+  redis:
+    image: redis:3.0.504-windowsservercore
+    container_name: django_rf_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - django_network
+    command: redis-server --appendonly yes
+
+  db:
+    image: postgres:16.0
+    container_name: django_rf_postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-djangorf}
+      POSTGRES_USER: ${DB_USER:-django_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-django_pass123}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - django_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-django_user}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  web:
+    build: .
+    container_name: django_rf_web
+    command: >
+      sh -c "python manage.py wait_for_db &&
+             python manage.py migrate &&
+             python manage.py collectstatic --noinput &&
+             python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - .:/app
+      - static_volume:/app/static
+      - media_volume:/app/media
+    environment:
+      - DEBUG=${DEBUG:-True}
+      - SECRET_KEY=${SECRET_KEY}
+      - DB_NAME=${DB_NAME:-djangorf}
+      - DB_USER=${DB_USER:-django_user}
+      - DB_PASSWORD=${DB_PASSWORD:-django_pass123}
+      - DB_HOST=db
+      - DB_PORT=5432
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - EMAIL_HOST_USER=${EMAIL_HOST_USER}
+      - EMAIL_HOST_PASSWORD=${EMAIL_HOST_PASSWORD}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - HOST=${HOST:-http://localhost:8000}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - django_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  celery_worker:
+    build: .
+    container_name: django_rf_celery_worker
+    command: celery -A DjangoRF worker --loglevel=info
+    volumes:
+      - .:/app
+    environment:
+      - DEBUG=${DEBUG:-True}
+      - SECRET_KEY=${SECRET_KEY}
+      - DB_NAME=${DB_NAME:-djangorf}
+      - DB_USER=${DB_USER:-django_user}
+      - DB_PASSWORD=${DB_PASSWORD:-django_pass123}
+      - DB_HOST=db
+      - DB_PORT=5432
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - EMAIL_HOST_USER=${EMAIL_HOST_USER}
+      - EMAIL_HOST_PASSWORD=${EMAIL_HOST_PASSWORD}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      web:
+        condition: service_started
+    networks:
+      - django_network
+
+  celery_beat:
+    build: .
+    container_name: django_rf_celery_beat
+    command: celery -A DjangoRF beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    volumes:
+      - .:/app
+    environment:
+      - DEBUG=${DEBUG:-True}
+      - SECRET_KEY=${SECRET_KEY}
+      - DB_NAME=${DB_NAME:-djangorf}
+      - DB_USER=${DB_USER:-django_user}
+      - DB_PASSWORD=${DB_PASSWORD:-django_pass123}
+      - DB_HOST=db
+      - DB_PORT=5432
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - EMAIL_HOST_USER=${EMAIL_HOST_USER}
+      - EMAIL_HOST_PASSWORD=${EMAIL_HOST_PASSWORD}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      web:
+        condition: service_started
+      celery_worker:
+        condition: service_started
+    networks:
+      - django_network
+
+volumes:
+  postgres_data:
+  redis_data:
+  static_volume:
+  media_volume:
+
+networks:
+  django_network:
+    driver: bridge
