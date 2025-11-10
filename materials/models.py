@@ -15,6 +15,7 @@ class Course(models.Model):
     class Meta:
         verbose_name = 'Курс'
         verbose_name_plural = 'Курсы'
+        ordering = ['id']
         permissions = [
             ("can_edit_course", "Can edit course"),
         ]
@@ -35,6 +36,7 @@ class Lesson(models.Model):
     class Meta:
         verbose_name = 'Урок'
         verbose_name_plural = 'Уроки'
+        ordering = ['id']
         permissions = [
             ("can_edit_lesson", "Can edit lesson"),
         ]
