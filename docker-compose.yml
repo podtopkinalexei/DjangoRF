@@ -2,7 +2,7 @@ version: '3.9'  # Эта строка устарела!!!
 
 services:
   redis:
-    image: redis:3.0.504-windowsservercore
+    image: redis:7-alpine
     container_name: django_rf_redis
     ports:
       - "6379:6379"
@@ -11,6 +11,11 @@ services:
     networks:
       - django_network
     command: redis-server --appendonly yes
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   db:
     image: postgres:16.0
@@ -153,3 +158,4 @@ volumes:
 networks:
   django_network:
     driver: bridge
+

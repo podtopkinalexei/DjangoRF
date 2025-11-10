@@ -1,0 +1,185 @@
+name: Django CI/CD
+
+on:
+  push:
+    branches: [main, master, devops]
+  pull_request:
+    branches: [main, master]
+
+env:
+  DOCKER_IMAGE: django-rf-app
+  REGISTRY: ghcr.io
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: test_db
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-django pytest-cov
+
+      - name: Create .env file for testing
+        run: |
+          cat > .env << EOF
+          DEBUG=True
+          SECRET_KEY=test-secret-key-for-ci-cd-only-not-for-production
+          DB_NAME=test_db
+          DB_USER=test_user
+          DB_PASSWORD=test_password
+          DB_HOST=localhost
+          DB_PORT=5432
+          REDIS_HOST=localhost
+          REDIS_PORT=6379
+          CELERY_BROKER_URL=redis://localhost:6379/0
+          CELERY_RESULT_BACKEND=redis://localhost:6379/0
+          EMAIL_HOST_USER=test@example.com
+          EMAIL_HOST_PASSWORD=test_password
+          STRIPE_SECRET_KEY=sk_test_mockkey1234567890
+          HOST=http://localhost:8000
+          EOF
+
+      - name: Run migrations
+        run: |
+          python manage.py migrate
+
+      - name: Run tests with pytest
+        run: |
+          python manage.py test --noinput
+        env:
+          DJANGO_SETTINGS_MODULE: DjangoRF.settings
+
+      - name: Run security check
+        run: |
+          pip install bandit safety
+          bandit -r . -f json -o bandit-report.json || true
+          safety check --json --output safety-report.json || true
+
+  build-and-deploy:
+    name: Build and Deploy
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ env.DOCKER_IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /opt/django-rf-app            
+            
+            if [ ! -f .env ]; then
+              echo "Creating .env file from secrets..."
+              cat > .env << EOF
+              DEBUG=${{ secrets.DEBUG }}
+              SECRET_KEY=${{ secrets.SECRET_KEY }}
+              DB_NAME=${{ secrets.DB_NAME }}
+              DB_USER=${{ secrets.DB_USER }}
+              DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+              DB_HOST=db
+              DB_PORT=5432
+              REDIS_HOST=redis
+              REDIS_PORT=6379
+              EMAIL_HOST_USER=${{ secrets.EMAIL_HOST_USER }}
+              EMAIL_HOST_PASSWORD=${{ secrets.EMAIL_HOST_PASSWORD }}
+              STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}
+              HOST=${{ secrets.HOST }}
+              CELERY_BROKER_URL=redis://redis:6379/0
+              CELERY_RESULT_BACKEND=redis://redis:6379/0
+              EOF
+            fi
+            
+            docker-compose pull
+            docker-compose down
+            docker-compose up -d            
+            
+            sleep 10
+            
+            docker-compose exec -T web python manage.py migrate
+            docker-compose exec -T web python manage.py collectstatic --noinput            
+            
+            docker-compose restart web
+            
+            echo "Deployment completed successfully!"
+
+      - name: Health check
+        uses: jtalk/url-health-check-action@v3
+        with:
+          url: ${{ secrets.HEALTH_CHECK_URL }}
+          max-attempts: 5
+          retry-delay: 15s
