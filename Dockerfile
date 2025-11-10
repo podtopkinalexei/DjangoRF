@@ -1,4 +1,4 @@
-FROM python:3.13.7
+FROM python:3.11-slim
 
 # Установка системных зависимостей
 RUN apt-get update && apt-get install -y \
