@@ -31,7 +31,7 @@ class CourseViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action == 'create':
             # Создавать курсы могут только авторизованные пользователи (не модераторы)
-            return [permissions.IsAuthenticated() & ~IsModerator()]
+            return [permissions.IsAuthenticated()]
         elif self.action in ['update', 'partial_update', 'destroy']:
             # Обновлять и удалять могут только владельцы
             return [IsOwner()]
@@ -40,6 +40,9 @@ class CourseViewSet(viewsets.ModelViewSet):
             return [permissions.IsAuthenticated()]
 
     def perform_create(self, serializer):
+        if self.request.user.groups.filter(name='moderators').exists():
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Модераторы не могут создавать курсы")
         serializer.save(owner=self.request.user)
 
     def get_serializer_context(self):
@@ -70,10 +73,13 @@ class LessonListCreateAPIView(generics.ListCreateAPIView):
     def get_permissions(self):
         if self.request.method == 'POST':
             # Создавать уроки могут только не модераторы
-            return [permissions.IsAuthenticated() & ~IsModerator()]
+            return [permissions.IsAuthenticated()]
         return [permissions.IsAuthenticated()]
 
     def perform_create(self, serializer):
+        if self.request.user.groups.filter(name='moderators').exists():
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Модераторы не могут создавать уроки")
         serializer.save(owner=self.request.user)
 
 
