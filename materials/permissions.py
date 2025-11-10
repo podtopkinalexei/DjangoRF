@@ -24,8 +24,14 @@ class IsOwnerOrModerator(permissions.BasePermission):
 
     def has_permission(self, request, view):
         # Для создания объектов - только не модераторы
-        if view.action == 'create':
+        # Проверяем наличие атрибута action (есть в ViewSet) или используем метод запроса
+        if hasattr(view, 'action'):
+            if view.action == 'create':
+                return request.user.is_authenticated and not request.user.groups.filter(name='moderators').exists()
+        elif request.method == 'POST':
+            # Для обычных APIView проверяем метод
             return request.user.is_authenticated and not request.user.groups.filter(name='moderators').exists()
+
         return request.user.is_authenticated
 
     def has_object_permission(self, request, view, obj):

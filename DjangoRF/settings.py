@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 from datetime import timedelta
@@ -79,6 +80,14 @@ DATABASES = {
         'PORT': os.getenv('DB_PORT'),
     }
 }
+
+# Для тестов используем SQLite
+if 'test' in sys.argv or 'test_coverage' in sys.argv:
+    DATABASES['default'] = {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': ':memory:',
+    }
+
 
 AUTH_PASSWORD_VALIDATORS = [
     {
